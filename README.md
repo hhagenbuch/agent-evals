@@ -51,6 +51,14 @@ single call — a third of the judge tokens — with `--judge-ensemble 1`:
 java -jar target/agent-evals-0.1.0-SNAPSHOT.jar datasets/customer-support.yaml --judge-ensemble 1
 ```
 
+Parallel cases × concurrent ensemble can burst a lot of judge calls at once. The
+judge already retries 429/5xx with backoff; if you still hit rate limits, cap how
+many cases run at once with `--concurrency N`:
+
+```bash
+java -jar target/agent-evals-0.1.0-SNAPSHOT.jar datasets/customer-support.yaml --concurrency 4
+```
+
 ## Design
 
 - **Two assertion tiers.** `contains` / `not_contains` / `regex` are
@@ -78,7 +86,9 @@ java -jar target/agent-evals-0.1.0-SNAPSHOT.jar datasets/customer-support.yaml -
   any single stochastic grade before it can flip a CI gate. The polls run
   concurrently, so ensembling costs latency of *one* call, not three — but it
   does cost 3× the **tokens**. Set `--judge-ensemble 1` to disable it (single
-  call, a third of the judge spend) where cost matters more than stability.
+  call, a third of the judge spend) where cost matters more than stability. The
+  judge retries 429/5xx with exponential backoff (parallel cases burst its
+  request rate), and `--concurrency N` caps concurrent cases if you still throttle.
 - **Reports are artifacts.** Every run writes `eval-report.md` with per-case
   results, timings, and judge rationales — uploaded by CI on pass *and* fail,
   because the failing report is the useful one.
@@ -90,6 +100,7 @@ java -jar target/agent-evals-0.1.0-SNAPSHOT.jar datasets/customer-support.yaml -
 - [x] Parallel case execution (virtual threads)
 - [x] Trajectory assertions (did the agent call the *right tools*, not just answer well)
 - [x] Judge ensembling to reduce single-judge variance (concurrent, `--judge-ensemble N`)
+- [x] Judge retry/backoff on 429/5xx + `--concurrency N` case cap for rate limits
 
 ## License
 

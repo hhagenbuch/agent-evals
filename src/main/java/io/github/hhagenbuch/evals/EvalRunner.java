@@ -20,13 +20,15 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.Semaphore;
 
 /**
  * CLI entry point.
  *
  * <pre>
  * java -jar agent-evals.jar datasets/customer-support.yaml \
- *     [--target URL] [--report eval-report.md] [--min-pass-rate 0.9] [--judge-ensemble 3]
+ *     [--target URL] [--report eval-report.md] [--min-pass-rate 0.9] \
+ *     [--judge-ensemble 3] [--concurrency N]
  * </pre>
  *
  * Exit code 0 when the pass rate meets {@code --min-pass-rate} (default 1.0 —
@@ -37,7 +39,7 @@ public final class EvalRunner {
     public static void main(String[] args) {
         if (args.length < 1) {
             System.err.println("usage: eval-runner <dataset.yaml> [--target URL] [--report FILE] "
-                    + "[--min-pass-rate 0.9] [--judge-ensemble 3]");
+                    + "[--min-pass-rate 0.9] [--judge-ensemble 3] [--concurrency N]");
             System.exit(2);
         }
         Dataset dataset = DatasetLoader.load(Path.of(args[0]));
@@ -46,13 +48,14 @@ public final class EvalRunner {
         double minPassRate = Double.parseDouble(argValue(args, "--min-pass-rate", "1.0"));
         int judgeEnsemble = Integer.parseInt(
                 argValue(args, "--judge-ensemble", String.valueOf(LlmJudge.DEFAULT_ENSEMBLE)));
+        int concurrency = Integer.parseInt(argValue(args, "--concurrency", "0")); // 0 = unbounded
 
         TargetSystem target = targetUrl == null || targetUrl.equals("echo")
                 ? new EchoTarget()
                 : new HttpTarget(targetUrl);
         LlmJudge judge = new LlmJudge(System.getenv("ANTHROPIC_API_KEY"), judgeEnsemble);
 
-        List<CaseResult> results = run(dataset, target, judge);
+        List<CaseResult> results = run(dataset, target, judge, concurrency);
 
         String md = Reporter.markdown(dataset, results);
         Reporter.write(reportPath, md);
@@ -69,16 +72,23 @@ public final class EvalRunner {
         return rate + 1e-9 >= minPassRate;
     }
 
+    static List<CaseResult> run(Dataset dataset, TargetSystem target, LlmJudge judge) {
+        return run(dataset, target, judge, 0);
+    }
+
     /**
      * Runs every case concurrently on virtual threads, then reports results in
      * dataset order (so the report and exit code stay deterministic regardless
-     * of which case finishes first).
+     * of which case finishes first). {@code concurrency > 0} caps how many cases
+     * run at once (via a {@link Semaphore}) so a big suite doesn't burst past the
+     * target's or judge's rate limits; {@code 0} leaves it unbounded.
      */
-    static List<CaseResult> run(Dataset dataset, TargetSystem target, LlmJudge judge) {
+    static List<CaseResult> run(Dataset dataset, TargetSystem target, LlmJudge judge, int concurrency) {
+        Semaphore limiter = concurrency > 0 ? new Semaphore(concurrency) : null;
         List<CaseResult> results = new ArrayList<>();
         try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
             List<Future<CaseResult>> futures = dataset.cases().stream()
-                    .map(evalCase -> executor.submit(() -> evaluateCase(evalCase, target, judge)))
+                    .map(evalCase -> executor.submit(() -> gated(limiter, () -> evaluateCase(evalCase, target, judge))))
                     .toList();
             for (Future<CaseResult> future : futures) {
                 CaseResult result = future.get();
@@ -93,6 +103,20 @@ public final class EvalRunner {
             throw new IllegalStateException("eval case failed unexpectedly", e.getCause());
         }
         return results;
+    }
+
+    /** Runs {@code work} while holding a permit from {@code limiter}, or directly when unbounded. */
+    private static CaseResult gated(Semaphore limiter, java.util.function.Supplier<CaseResult> work)
+            throws InterruptedException {
+        if (limiter == null) {
+            return work.get();
+        }
+        limiter.acquire();
+        try {
+            return work.get();
+        } finally {
+            limiter.release();
+        }
     }
 
     static CaseResult evaluateCase(EvalCase evalCase, TargetSystem target, LlmJudge judge) {
