@@ -1,0 +1,25 @@
+name: Eval gate
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Unit tests + package
+        run: mvn -B verify
+      - name: Smoke evals (deterministic, no key)
+        run: java -jar target/agent-evals-0.1.0-SNAPSHOT.jar datasets/smoke.yaml
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: eval-report.md
