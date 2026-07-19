@@ -156,19 +156,19 @@ public class LlmJudge {
             // The model occasionally returns a 200 with an empty or non-JSON
             // completion; that is transient, so retry it like a rate-limit blip
             // rather than failing the case on the first stray response.
-            String lastText = "";
+            String lastBody = "";
             for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
                 HttpResponse<String> httpResponse = sendWithRetry(request);
-                lastText = mapper.readTree(httpResponse.body())
-                        .path("content").path(0).path("text").asText();
+                lastBody = httpResponse.body();
+                String text = mapper.readTree(lastBody).path("content").path(0).path("text").asText();
                 try {
-                    JsonNode verdict = mapper.readTree(extractJson(lastText));
+                    JsonNode verdict = mapper.readTree(extractJson(text));
                     return new Verdict(verdict.path("score").asInt(), verdict.path("rationale").asText());
                 } catch (IllegalArgumentException | com.fasterxml.jackson.core.JsonProcessingException parseFailure) {
                     if (attempt == MAX_ATTEMPTS) {
                         throw new IllegalStateException(
                                 "judge returned no parseable JSON after " + MAX_ATTEMPTS
-                                        + " attempts; last output: '" + snippet(lastText) + "'", parseFailure);
+                                        + " attempts; raw response: " + snippet(lastBody), parseFailure);
                     }
                     Thread.sleep(BACKOFF_BASE_MILLIS * (1L << (attempt - 1)));
                 }
@@ -225,7 +225,7 @@ public class LlmJudge {
             return "(empty body)";
         }
         String oneLine = body.strip().replaceAll("\\s+", " ");
-        return oneLine.length() > 200 ? oneLine.substring(0, 200) + "..." : oneLine;
+        return oneLine.length() > 500 ? oneLine.substring(0, 500) + "..." : oneLine;
     }
 
     /** Tolerates judges that wrap JSON in prose or code fences. */
