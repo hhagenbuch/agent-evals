@@ -1,5 +1,6 @@
 package io.github.hhagenbuch.evals.target;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
@@ -10,6 +11,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Calls a chat endpoint shaped like
@@ -29,7 +32,7 @@ public final class HttpTarget implements TargetSystem {
     }
 
     @Override
-    public String respond(String prompt) {
+    public TargetResponse respond(String prompt) {
         try {
             ObjectNode body = mapper.createObjectNode();
             body.put("sessionId", "eval-" + System.nanoTime());
@@ -43,7 +46,12 @@ public final class HttpTarget implements TargetSystem {
             if (response.statusCode() != 200) {
                 throw new IOException("target returned HTTP " + response.statusCode());
             }
-            return mapper.readTree(response.body()).path("reply").asText();
+            JsonNode json = mapper.readTree(response.body());
+            List<String> toolsUsed = new ArrayList<>();
+            for (JsonNode tool : json.path("toolsUsed")) {
+                toolsUsed.add(tool.asText());
+            }
+            return new TargetResponse(json.path("reply").asText(), toolsUsed);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         } catch (InterruptedException e) {

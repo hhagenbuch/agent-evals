@@ -7,6 +7,8 @@ cases:
     assert:
       - type: contains
         value: "468013"
+      - type: tool_called
+        value: "calculator"
       - type: judge
         criteria: "States the correct product (468013) clearly and concisely."
         min_score: 4

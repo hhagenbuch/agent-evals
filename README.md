@@ -51,6 +51,12 @@ java -jar target/agent-evals-0.1.0-SNAPSHOT.jar datasets/customer-support.yaml -
   and a score threshold — and is **skipped, not failed**, when no
   `ANTHROPIC_API_KEY` is present, so the deterministic tier still gates
   keyless CI runs (see `eval-gate.yml`).
+- **Trajectory, not just output.** `tool_called` (value: a tool name) asserts
+  the agent *actually invoked the right tool*, not merely that it said the right
+  thing. It reads the `toolsUsed` trace the target reports (the
+  [starter](https://github.com/hhagenbuch/spring-ai-agent-starter) returns it on
+  every `/api/chat` response); a target that reports no trace fails the
+  assertion rather than passing silently.
 - **Targets are pluggable.** `HttpTarget` speaks the chat-endpoint shape of
   [spring-ai-agent-starter](https://github.com/hhagenbuch/spring-ai-agent-starter);
   `EchoTarget` lets the harness test itself. Implement `TargetSystem` (one
@@ -64,7 +70,7 @@ java -jar target/agent-evals-0.1.0-SNAPSHOT.jar datasets/customer-support.yaml -
 - [x] YAML datasets, deterministic + judge assertions, markdown reports, CI gate
 - [x] Pass-rate threshold flag (`--min-pass-rate 0.9`) for flaky-tolerant gates
 - [ ] Parallel case execution
-- [ ] Trajectory assertions (did the agent call the *right tools*, not just answer well)
+- [x] Trajectory assertions (did the agent call the *right tools*, not just answer well)
 - [ ] Judge ensembling to reduce single-judge variance
 
 ## License

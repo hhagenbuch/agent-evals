@@ -3,6 +3,7 @@ package io.github.hhagenbuch.evals.assertions;
 import io.github.hhagenbuch.evals.judge.LlmJudge;
 import io.github.hhagenbuch.evals.model.AssertionResult;
 import io.github.hhagenbuch.evals.model.AssertionSpec;
+import io.github.hhagenbuch.evals.target.TargetResponse;
 
 import java.util.Locale;
 import java.util.regex.Pattern;
@@ -13,15 +14,29 @@ public final class Assertions {
     private Assertions() {
     }
 
-    public static AssertionResult evaluate(AssertionSpec spec, String prompt, String response, LlmJudge judge) {
+    public static AssertionResult evaluate(AssertionSpec spec, String prompt, TargetResponse response, LlmJudge judge) {
+        String reply = response.reply();
         return switch (spec.type().toLowerCase(Locale.ROOT)) {
-            case "contains" -> contains(spec, response);
-            case "not_contains" -> notContains(spec, response);
-            case "regex" -> regex(spec, response);
-            case "judge" -> judged(spec, prompt, response, judge);
+            case "contains" -> contains(spec, reply);
+            case "not_contains" -> notContains(spec, reply);
+            case "regex" -> regex(spec, reply);
+            case "judge" -> judged(spec, prompt, reply, judge);
+            case "tool_called" -> toolCalled(spec, response);
             default -> AssertionResult.fail("unknown assertion type '" + spec.type() + "'",
-                    "supported: contains, not_contains, regex, judge");
+                    "supported: contains, not_contains, regex, judge, tool_called");
         };
+    }
+
+    /** Trajectory assertion: did the agent actually invoke the named tool? */
+    private static AssertionResult toolCalled(AssertionSpec spec, TargetResponse response) {
+        String description = "called tool \"" + spec.value() + "\"";
+        if (response.toolsUsed().isEmpty()) {
+            return AssertionResult.fail(description,
+                    "target reported no tool trace (does its response include toolsUsed?)");
+        }
+        return response.toolsUsed().contains(spec.value())
+                ? AssertionResult.pass(description)
+                : AssertionResult.fail(description, "tools used: " + response.toolsUsed());
     }
 
     private static AssertionResult contains(AssertionSpec spec, String response) {

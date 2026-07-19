@@ -10,6 +10,7 @@ import io.github.hhagenbuch.evals.model.EvalCase;
 import io.github.hhagenbuch.evals.report.Reporter;
 import io.github.hhagenbuch.evals.target.EchoTarget;
 import io.github.hhagenbuch.evals.target.HttpTarget;
+import io.github.hhagenbuch.evals.target.TargetResponse;
 import io.github.hhagenbuch.evals.target.TargetSystem;
 
 import java.nio.file.Path;
@@ -69,9 +70,10 @@ public final class EvalRunner {
             String response;
             List<AssertionResult> assertionResults = new ArrayList<>();
             try {
-                response = target.respond(evalCase.prompt());
+                TargetResponse targetResponse = target.respond(evalCase.prompt());
+                response = targetResponse.reply();
                 for (var spec : evalCase.assertions()) {
-                    assertionResults.add(Assertions.evaluate(spec, evalCase.prompt(), response, judge));
+                    assertionResults.add(Assertions.evaluate(spec, evalCase.prompt(), targetResponse, judge));
                 }
             } catch (RuntimeException e) {
                 response = "";

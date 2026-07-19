@@ -4,7 +4,7 @@ package io.github.hhagenbuch.evals.target;
 public final class EchoTarget implements TargetSystem {
 
     @Override
-    public String respond(String prompt) {
-        return "ECHO: " + prompt;
+    public TargetResponse respond(String prompt) {
+        return TargetResponse.of("ECHO: " + prompt);
     }
 }

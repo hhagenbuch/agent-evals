@@ -3,5 +3,5 @@ package io.github.hhagenbuch.evals.target;
 /** The system under evaluation: given a prompt, produce a response. */
 public interface TargetSystem {
 
-    String respond(String prompt);
+    TargetResponse respond(String prompt);
 }
