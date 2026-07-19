@@ -163,25 +163,45 @@ public class LlmJudge {
      * failures (HTTP 429/5xx and transient {@link IOException}s), mirroring the
      * starter's {@code AnthropicClient}. Ensembling multiplies the request rate,
      * so without this a single rate-limit blip would redden an otherwise-green case.
+     *
+     * <p>A non-retryable non-200 (e.g. 400 malformed, 401 bad key) throws
+     * immediately with a body snippet — otherwise the caller would parse an empty
+     * body and fail with a misleading "no JSON object in judge output".
      */
     private HttpResponse<String> sendWithRetry(HttpRequest request) throws IOException, InterruptedException {
         IOException last = null;
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            HttpResponse<String> response = null;
             try {
-                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-                int status = response.statusCode();
-                if (status != 429 && status < 500) {
-                    return response; // success, or a non-retryable client error the caller will surface
-                }
-                last = new IOException("judge API returned HTTP " + status);
+                response = client.send(request, HttpResponse.BodyHandlers.ofString());
             } catch (IOException e) {
                 last = e; // connection reset / read timeout — retry
+            }
+            if (response != null) {
+                int status = response.statusCode();
+                if (status == 200) {
+                    return response;
+                }
+                String message = "judge API returned HTTP " + status + ": " + snippet(response.body());
+                if (status != 429 && status < 500) {
+                    throw new IOException(message); // bad key / malformed request — retrying won't help
+                }
+                last = new IOException(message); // 429/5xx — retryable
             }
             if (attempt < MAX_ATTEMPTS) {
                 Thread.sleep(BACKOFF_BASE_MILLIS * (1L << (attempt - 1))); // 500ms, 1s, ...
             }
         }
         throw last;
+    }
+
+    /** A short, single-line slice of an error body for diagnostics. */
+    public static String snippet(String body) {
+        if (body == null || body.isBlank()) {
+            return "(empty body)";
+        }
+        String oneLine = body.strip().replaceAll("\\s+", " ");
+        return oneLine.length() > 200 ? oneLine.substring(0, 200) + "..." : oneLine;
     }
 
     /** Tolerates judges that wrap JSON in prose or code fences. */
