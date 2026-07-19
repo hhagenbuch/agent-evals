@@ -93,6 +93,19 @@ java -jar target/agent-evals-0.1.0-SNAPSHOT.jar datasets/customer-support.yaml -
   results, timings, and judge rationales — uploaded by CI on pass *and* fail,
   because the failing report is the useful one.
 
+## Container image
+
+Published to GHCR on every push to `main`:
+
+```bash
+docker run --rm -v "$PWD/datasets":/data \
+  ghcr.io/hhagenbuch/agent-evals:0.1.0 /data/smoke.yaml --min-pass-rate 0.9
+```
+
+The image's entrypoint *is* the runner, so container args are the CLI args. This
+is what [agent-operator](https://github.com/hhagenbuch/agent-operator) runs as
+its in-cluster eval-gate Job.
+
 ## Roadmap
 
 - [x] YAML datasets, deterministic + judge assertions, markdown reports, CI gate
