@@ -23,20 +23,33 @@ public final class Reporter {
         md.append("**").append(passed).append("/").append(results.size()).append(" cases passed**\n\n");
         md.append("| Case | Result | Time | Details |\n|---|---|---|---|\n");
         for (CaseResult result : results) {
-            md.append("| ").append(result.caseId())
+            md.append("| ").append(cell(result.caseId()))
               .append(" | ").append(result.passed() ? "✅" : "❌")
               .append(" | ").append(result.millis()).append(" ms | ");
             for (AssertionResult a : result.assertions()) {
                 String mark = a.skipped() ? "⏭" : a.passed() ? "✓" : "✗";
-                md.append(mark).append(" ").append(a.description());
+                md.append(mark).append(" ").append(cell(a.description()));
                 if (!a.detail().isBlank()) {
-                    md.append(" — ").append(a.detail());
+                    md.append(" — ").append(cell(a.detail()));
                 }
                 md.append("<br>");
             }
             md.append(" |\n");
         }
         return md.toString();
+    }
+
+    /**
+     * Makes free text (notably judge rationales) safe inside a GFM table cell:
+     * a literal {@code |} would start a new column and a newline would end the
+     * row, so one chatty rationale could otherwise shred the whole table.
+     */
+    private static String cell(String text) {
+        return text.replace("\\", "\\\\")
+                .replace("|", "\\|")
+                .replace("\r\n", " ")
+                .replace("\n", " ")
+                .replace("\r", " ");
     }
 
     public static void write(Path path, String content) {

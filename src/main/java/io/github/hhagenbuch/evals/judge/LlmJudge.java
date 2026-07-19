@@ -34,6 +34,10 @@ public class LlmJudge {
     /** Default ensemble size: the judge is polled this many times and the scores are combined by median. */
     public static final int DEFAULT_ENSEMBLE = 3;
 
+    /** Retry knobs: parallel cases × concurrent ensemble burst judge calls, so a 429/5xx blip must not fail a case. */
+    private static final int MAX_ATTEMPTS = 3;
+    private static final long BACKOFF_BASE_MILLIS = 500;
+
     private final HttpClient client = HttpClient.newHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
     private final String apiKey;
@@ -141,7 +145,7 @@ public class LlmJudge {
                     .header("content-type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
                     .build();
-            HttpResponse<String> response2 = client.send(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response2 = sendWithRetry(request);
             String text = mapper.readTree(response2.body())
                     .path("content").path(0).path("text").asText();
             JsonNode verdict = mapper.readTree(extractJson(text));
@@ -152,6 +156,32 @@ public class LlmJudge {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("interrupted while judging", e);
         }
+    }
+
+    /**
+     * Sends the judge request with a small exponential backoff on retryable
+     * failures (HTTP 429/5xx and transient {@link IOException}s), mirroring the
+     * starter's {@code AnthropicClient}. Ensembling multiplies the request rate,
+     * so without this a single rate-limit blip would redden an otherwise-green case.
+     */
+    private HttpResponse<String> sendWithRetry(HttpRequest request) throws IOException, InterruptedException {
+        IOException last = null;
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            try {
+                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+                int status = response.statusCode();
+                if (status != 429 && status < 500) {
+                    return response; // success, or a non-retryable client error the caller will surface
+                }
+                last = new IOException("judge API returned HTTP " + status);
+            } catch (IOException e) {
+                last = e; // connection reset / read timeout — retry
+            }
+            if (attempt < MAX_ATTEMPTS) {
+                Thread.sleep(BACKOFF_BASE_MILLIS * (1L << (attempt - 1))); // 500ms, 1s, ...
+            }
+        }
+        throw last;
     }
 
     /** Tolerates judges that wrap JSON in prose or code fences. */
