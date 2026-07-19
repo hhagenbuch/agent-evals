@@ -26,12 +26,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out agent-evals
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: agent-evals
 
       - name: Check out the target agent (spring-ai-agent-starter)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: hhagenbuch/spring-ai-agent-starter
           path: starter
