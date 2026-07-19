@@ -26,4 +26,13 @@ class EvalRunnerTest {
         assertThat(results.get(0).passed()).isTrue();
         assertThat(results.get(1).passed()).isFalse();
     }
+
+    @Test
+    void thresholdGatePassesAtOrAboveMinPassRate() {
+        assertThat(EvalRunner.meetsThreshold(9, 10, 0.9)).isTrue();   // exactly on the boundary
+        assertThat(EvalRunner.meetsThreshold(8, 10, 0.9)).isFalse();  // just below
+        assertThat(EvalRunner.meetsThreshold(10, 10, 1.0)).isTrue();  // default: all must pass
+        assertThat(EvalRunner.meetsThreshold(9, 10, 1.0)).isFalse();
+        assertThat(EvalRunner.meetsThreshold(0, 0, 1.0)).isTrue();    // empty dataset
+    }
 }

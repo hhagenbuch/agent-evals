@@ -20,21 +20,25 @@ import java.util.List;
  * CLI entry point.
  *
  * <pre>
- * java -jar agent-evals.jar datasets/customer-support.yaml [--target URL] [--report eval-report.md]
+ * java -jar agent-evals.jar datasets/customer-support.yaml \
+ *     [--target URL] [--report eval-report.md] [--min-pass-rate 0.9]
  * </pre>
  *
- * Exit code 0 when every case passes, 1 otherwise — wire it straight into CI.
+ * Exit code 0 when the pass rate meets {@code --min-pass-rate} (default 1.0 —
+ * every case must pass), 1 otherwise — wire it straight into CI.
  */
 public final class EvalRunner {
 
     public static void main(String[] args) {
         if (args.length < 1) {
-            System.err.println("usage: eval-runner <dataset.yaml> [--target URL] [--report FILE]");
+            System.err.println(
+                    "usage: eval-runner <dataset.yaml> [--target URL] [--report FILE] [--min-pass-rate 0.9]");
             System.exit(2);
         }
         Dataset dataset = DatasetLoader.load(Path.of(args[0]));
         String targetUrl = argValue(args, "--target", dataset.target());
         Path reportPath = Path.of(argValue(args, "--report", "eval-report.md"));
+        double minPassRate = Double.parseDouble(argValue(args, "--min-pass-rate", "1.0"));
 
         TargetSystem target = targetUrl == null || targetUrl.equals("echo")
                 ? new EchoTarget()
@@ -46,9 +50,16 @@ public final class EvalRunner {
         String md = Reporter.markdown(dataset, results);
         Reporter.write(reportPath, md);
         long passed = results.stream().filter(CaseResult::passed).count();
-        System.out.printf("%n%s: %d/%d cases passed — report: %s%n",
-                dataset.name(), passed, results.size(), reportPath);
-        System.exit(passed == results.size() ? 0 : 1);
+        boolean gatePassed = meetsThreshold(passed, results.size(), minPassRate);
+        System.out.printf("%n%s: %d/%d cases passed (min-pass-rate %.2f) — report: %s%n",
+                dataset.name(), passed, results.size(), minPassRate, reportPath);
+        System.exit(gatePassed ? 0 : 1);
+    }
+
+    /** CI gate: does the observed pass rate meet the threshold? Empty datasets pass. */
+    static boolean meetsThreshold(long passed, int total, double minPassRate) {
+        double rate = total == 0 ? 1.0 : (double) passed / total;
+        return rate + 1e-9 >= minPassRate;
     }
 
     static List<CaseResult> run(Dataset dataset, TargetSystem target, LlmJudge judge) {

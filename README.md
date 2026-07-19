@@ -33,8 +33,15 @@ cases:
 mvn -q package
 java -jar target/agent-evals-0.1.0-SNAPSHOT.jar datasets/customer-support.yaml
 # [PASS] grounded-math (2140 ms)
-# customer-support: 3/3 cases passed — report: eval-report.md
+# customer-support: 3/3 cases passed (min-pass-rate 1.00) — report: eval-report.md
 # exit code 0 → CI proceeds; any failure → exit 1 → CI blocks the merge
+```
+
+By default every case must pass. For flaky-tolerant gates, lower the bar with
+`--min-pass-rate` (exit 0 iff `passed/total ≥ threshold`):
+
+```bash
+java -jar target/agent-evals-0.1.0-SNAPSHOT.jar datasets/customer-support.yaml --min-pass-rate 0.9
 ```
 
 ## Design
@@ -55,7 +62,7 @@ java -jar target/agent-evals-0.1.0-SNAPSHOT.jar datasets/customer-support.yaml
 ## Roadmap
 
 - [x] YAML datasets, deterministic + judge assertions, markdown reports, CI gate
-- [ ] Pass-rate threshold flag (`--min-pass-rate 0.9`) for flaky-tolerant gates
+- [x] Pass-rate threshold flag (`--min-pass-rate 0.9`) for flaky-tolerant gates
 - [ ] Parallel case execution
 - [ ] Trajectory assertions (did the agent call the *right tools*, not just answer well)
 - [ ] Judge ensembling to reduce single-judge variance
