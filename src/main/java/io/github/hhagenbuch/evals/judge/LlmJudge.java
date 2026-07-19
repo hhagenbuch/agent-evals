@@ -160,7 +160,7 @@ public class LlmJudge {
             for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
                 HttpResponse<String> httpResponse = sendWithRetry(request);
                 lastBody = httpResponse.body();
-                String text = mapper.readTree(lastBody).path("content").path(0).path("text").asText();
+                String text = extractText(mapper.readTree(lastBody));
                 try {
                     JsonNode verdict = mapper.readTree(extractJson(text));
                     return new Verdict(verdict.path("score").asInt(), verdict.path("rationale").asText());
@@ -226,6 +226,23 @@ public class LlmJudge {
         }
         String oneLine = body.strip().replaceAll("\\s+", " ");
         return oneLine.length() > 500 ? oneLine.substring(0, 500) + "..." : oneLine;
+    }
+
+    /**
+     * Concatenates the text of every {@code text} content block in a Messages API
+     * response. The judge model may prepend a {@code thinking} block (which carries
+     * no {@code text} field), so reading {@code content[0].text} would return empty
+     * for exactly the responses the model reasoned through — pick the text blocks by
+     * type instead of by position.
+     */
+    public static String extractText(JsonNode responseBody) {
+        StringBuilder text = new StringBuilder();
+        for (JsonNode block : responseBody.path("content")) {
+            if ("text".equals(block.path("type").asText())) {
+                text.append(block.path("text").asText());
+            }
+        }
+        return text.toString();
     }
 
     /** Tolerates judges that wrap JSON in prose or code fences. */
