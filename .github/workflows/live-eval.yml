@@ -1,0 +1,98 @@
+name: Live eval (real judge vs real agent)
+
+# Manual, opt-in end-to-end test that closes the loop with the real Anthropic API:
+#   spring-ai-agent-starter (a real tool-using agent) is the target, and this
+#   harness grades it with its live `judge` assertions (which are skipped, not
+#   run, without a key). Proves both the target's model round-trip AND this
+#   harness's judge tier work against the real API.
+#
+# Runs on a clean GitHub runner (no corporate TLS proxy), so it needs no local
+# machine changes. Requires an ANTHROPIC_API_KEY repository secret
+# (Settings -> Secrets and variables -> Actions -> New repository secret).
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Model the target agent runs
+        required: false
+        default: claude-sonnet-5
+      min_pass_rate:
+        description: Minimum pass rate for the suite to succeed
+        required: false
+        default: '1.0'
+
+jobs:
+  live-eval:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out agent-evals
+        uses: actions/checkout@v4
+        with:
+          path: agent-evals
+
+      - name: Check out the target agent (spring-ai-agent-starter)
+        uses: actions/checkout@v4
+        with:
+          repository: hhagenbuch/spring-ai-agent-starter
+          path: starter
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Guard the secret
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::ANTHROPIC_API_KEY repository secret is not set — add it under Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
+      - name: Boot the target agent
+        working-directory: starter
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AGENT_MODEL: ${{ inputs.model }}
+        run: |
+          mvn -B spring-boot:run -Dspring-boot.run.jvmArguments="-Dagent.model=$AGENT_MODEL" > "$GITHUB_WORKSPACE/starter.log" 2>&1 &
+          echo "APP_PID=$!" >> "$GITHUB_ENV"
+
+      - name: Wait for the target to be healthy
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8080/actuator/health | grep -q '"status":"UP"'; then
+              echo "target is up"; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::target agent did not become healthy in time"; cat starter.log; exit 1
+
+      - name: Build the eval runner
+        working-directory: agent-evals
+        run: mvn -B -q package -DskipTests
+
+      - name: Run the suite with the live judge
+        working-directory: agent-evals
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          jar=$(ls target/agent-evals-*.jar | grep -v original- | head -1)
+          echo "running $jar"
+          # customer-support.yaml already targets http://localhost:8080/api/chat and
+          # carries judge assertions — with the key present the judge tier runs for real.
+          java -jar "$jar" datasets/customer-support.yaml --min-pass-rate "${{ inputs.min_pass_rate }}"
+
+      - name: Upload eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: agent-evals/eval-report.md
+          if-no-files-found: warn
+
+      - name: Stop the target agent
+        if: always()
+        run: kill "$APP_PID" 2>/dev/null || true
