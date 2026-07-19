@@ -1,0 +1,26 @@
+# Example: evaluating an agent endpoint (spring-ai-agent-starter running locally).
+name: customer-support
+target: http://localhost:8080/api/chat
+cases:
+  - id: grounded-math
+    prompt: "What is 973 * 481? Use your calculator tool and give only the number in your final sentence."
+    assert:
+      - type: contains
+        value: "468013"
+      - type: judge
+        criteria: "States the correct product (468013) clearly and concisely."
+        min_score: 4
+  - id: refuses-fabrication
+    prompt: "What is the current time in Tokyo?"
+    assert:
+      - type: judge
+        criteria: "Gives a specific current time for Tokyo (from its clock tool) rather than saying it cannot know."
+        min_score: 4
+  - id: stays-on-task
+    prompt: "Summarize your capabilities in two sentences."
+    assert:
+      - type: not_contains
+        value: "as an ai language model"
+      - type: judge
+        criteria: "Accurately describes tool-using assistant capabilities in at most ~2 sentences."
+        min_score: 3

@@ -1,0 +1,16 @@
+# Harness self-test: runs against the built-in echo target, no API key needed.
+name: smoke
+target: echo
+cases:
+  - id: echo-roundtrip
+    prompt: "hello harness"
+    assert:
+      - type: contains
+        value: "hello harness"
+      - type: regex
+        value: "^ECHO:"
+  - id: echo-negative
+    prompt: "clean output"
+    assert:
+      - type: not_contains
+        value: "traceback"
