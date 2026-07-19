@@ -47,4 +47,27 @@ class LlmJudgeTest {
         // long bodies are truncated (cap 500 + the "..." marker)
         assertThat(LlmJudge.snippet("x".repeat(800))).hasSize(503).endsWith("...");
     }
+
+    @Test
+    void extractTextSkipsALeadingThinkingBlock() throws Exception {
+        // claude-sonnet-5 can prepend a thinking block; the JSON verdict is then in
+        // a later text block. Reading content[0] would miss it — extractText must not.
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        String body = """
+                {"content":[
+                  {"type":"thinking","thinking":"973*481 = 468013, correct","signature":"abc"},
+                  {"type":"text","text":"{\\"score\\": 5, \\"rationale\\": \\"correct\\"}"}
+                ]}
+                """;
+        String text = LlmJudge.extractText(mapper.readTree(body));
+        assertThat(text).isEqualTo("{\"score\": 5, \"rationale\": \"correct\"}");
+        assertThat(LlmJudge.extractJson(text)).contains("\"score\": 5");
+    }
+
+    @Test
+    void extractTextReturnsEmptyWhenNoTextBlock() throws Exception {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        String body = "{\"content\":[{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"x\"}]}";
+        assertThat(LlmJudge.extractText(mapper.readTree(body))).isEmpty();
+    }
 }
