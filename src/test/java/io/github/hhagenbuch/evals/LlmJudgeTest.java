@@ -36,4 +36,15 @@ class LlmJudgeTest {
         assertThat(new LlmJudge("").available()).isFalse();
         assertThat(new LlmJudge("sk-test").available()).isTrue();
     }
+
+    @Test
+    void snippetGivesAReadableErrorBodyForDiagnostics() {
+        assertThat(LlmJudge.snippet(null)).isEqualTo("(empty body)");
+        assertThat(LlmJudge.snippet("   ")).isEqualTo("(empty body)");
+        // multi-line JSON error collapses to one line so it fits an exception message
+        assertThat(LlmJudge.snippet("{\n \"error\": \"invalid x-api-key\"\n}"))
+                .isEqualTo("{ \"error\": \"invalid x-api-key\" }");
+        // long bodies are truncated
+        assertThat(LlmJudge.snippet("x".repeat(500))).hasSize(203).endsWith("...");
+    }
 }
