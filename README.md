@@ -112,7 +112,7 @@ its in-cluster eval-gate Job.
 - [x] Pass-rate threshold flag (`--min-pass-rate 0.9`) for flaky-tolerant gates
 - [x] Parallel case execution (virtual threads)
 - [x] Trajectory assertions (did the agent call the *right tools*, not just answer well)
-- [x] Judge ensembling to reduce single-judge variance (concurrent, `--judge-ensemble N`)
+- [x] Judge ensembling to reduce single-judge variance (concurrent, `--judge-ensemble N`, `--judge-model MODEL`)
 - [x] Judge retry/backoff on 429/5xx + `--concurrency N` case cap for rate limits
 
 ## License

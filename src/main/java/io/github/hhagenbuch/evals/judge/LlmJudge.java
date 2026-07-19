@@ -29,7 +29,8 @@ public class LlmJudge {
     public record Verdict(int score, String rationale) {
     }
 
-    private static final String MODEL = "claude-sonnet-5";
+    /** Default judge model; override with {@code --judge-model} to grade with a different/cheaper model. */
+    public static final String DEFAULT_MODEL = "claude-sonnet-5";
 
     /** Default ensemble size: the judge is polled this many times and the scores are combined by median. */
     public static final int DEFAULT_ENSEMBLE = 3;
@@ -42,19 +43,26 @@ public class LlmJudge {
     private final ObjectMapper mapper = new ObjectMapper();
     private final String apiKey;
     private final int ensembleSize;
+    private final String model;
 
     public LlmJudge(String apiKey) {
         this(apiKey, DEFAULT_ENSEMBLE);
+    }
+
+    public LlmJudge(String apiKey, int ensembleSize) {
+        this(apiKey, ensembleSize, DEFAULT_MODEL);
     }
 
     /**
      * @param ensembleSize how many times each judge assertion polls the model
      *                     (combined by median). {@code 1} disables ensembling —
      *                     one call per assertion, a third of the token cost.
+     * @param model        the model that grades responses ({@code --judge-model})
      */
-    public LlmJudge(String apiKey, int ensembleSize) {
+    public LlmJudge(String apiKey, int ensembleSize, String model) {
         this.apiKey = apiKey;
         this.ensembleSize = Math.max(1, ensembleSize);
+        this.model = model == null || model.isBlank() ? DEFAULT_MODEL : model;
     }
 
     public boolean available() {
@@ -139,7 +147,7 @@ public class LlmJudge {
                 """.formatted(prompt, response, criteria);
         try {
             ObjectNode body = mapper.createObjectNode();
-            body.put("model", MODEL);
+            body.put("model", model);
             body.put("max_tokens", 256);
             ArrayNode messages = body.putArray("messages");
             ObjectNode message = messages.addObject();

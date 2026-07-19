@@ -39,7 +39,7 @@ public final class EvalRunner {
     public static void main(String[] args) {
         if (args.length < 1) {
             System.err.println("usage: eval-runner <dataset.yaml> [--target URL] [--report FILE] "
-                    + "[--min-pass-rate 0.9] [--judge-ensemble 3] [--concurrency N]");
+                    + "[--min-pass-rate 0.9] [--judge-ensemble 3] [--judge-model MODEL] [--concurrency N]");
             System.exit(2);
         }
         Dataset dataset = DatasetLoader.load(Path.of(args[0]));
@@ -48,12 +48,13 @@ public final class EvalRunner {
         double minPassRate = Double.parseDouble(argValue(args, "--min-pass-rate", "1.0"));
         int judgeEnsemble = Integer.parseInt(
                 argValue(args, "--judge-ensemble", String.valueOf(LlmJudge.DEFAULT_ENSEMBLE)));
+        String judgeModel = argValue(args, "--judge-model", LlmJudge.DEFAULT_MODEL);
         int concurrency = Integer.parseInt(argValue(args, "--concurrency", "0")); // 0 = unbounded
 
         TargetSystem target = targetUrl == null || targetUrl.equals("echo")
                 ? new EchoTarget()
                 : new HttpTarget(targetUrl);
-        LlmJudge judge = new LlmJudge(System.getenv("ANTHROPIC_API_KEY"), judgeEnsemble);
+        LlmJudge judge = new LlmJudge(System.getenv("ANTHROPIC_API_KEY"), judgeEnsemble, judgeModel);
 
         List<CaseResult> results = run(dataset, target, judge, concurrency);
 
