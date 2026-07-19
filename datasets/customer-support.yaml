@@ -3,7 +3,7 @@ name: customer-support
 target: http://localhost:8080/api/chat
 cases:
   - id: grounded-math
-    prompt: "What is 973 * 481? Use your calculator tool and give only the number in your final sentence."
+    prompt: "What is 973 * 481? Use your calculator tool. In your final sentence give only the resulting integer as plain digits, with no commas, spaces, or other separators."
     assert:
       - type: contains
         value: "468013"
