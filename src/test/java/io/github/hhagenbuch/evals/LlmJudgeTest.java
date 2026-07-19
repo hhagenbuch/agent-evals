@@ -44,7 +44,7 @@ class LlmJudgeTest {
         // multi-line JSON error collapses to one line so it fits an exception message
         assertThat(LlmJudge.snippet("{\n \"error\": \"invalid x-api-key\"\n}"))
                 .isEqualTo("{ \"error\": \"invalid x-api-key\" }");
-        // long bodies are truncated
-        assertThat(LlmJudge.snippet("x".repeat(500))).hasSize(203).endsWith("...");
+        // long bodies are truncated (cap 500 + the "..." marker)
+        assertThat(LlmJudge.snippet("x".repeat(800))).hasSize(503).endsWith("...");
     }
 }
