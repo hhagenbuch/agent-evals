@@ -20,9 +20,13 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/hhagenbuch/agent-evals
+          # main pushes -> :latest + immutable :sha-<commit>; semver image tags
+          # (:0.1.0, :v0.1.0) are cut ONLY from git tags, so a released version tag
+          # never mutates under you.
           tags: |
-            type=raw,value=0.1.0
             type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,enable={{is_default_branch}}
+            type=semver,pattern={{version}},event=tag
             type=ref,event=tag
       - uses: docker/build-push-action@v6
         with:
