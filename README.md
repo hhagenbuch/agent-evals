@@ -44,6 +44,13 @@ By default every case must pass. For flaky-tolerant gates, lower the bar with
 java -jar target/agent-evals-0.1.0-SNAPSHOT.jar datasets/customer-support.yaml --min-pass-rate 0.9
 ```
 
+Judge assertions ensemble the model 3× by default (median score). Cut that to a
+single call — a third of the judge tokens — with `--judge-ensemble 1`:
+
+```bash
+java -jar target/agent-evals-0.1.0-SNAPSHOT.jar datasets/customer-support.yaml --judge-ensemble 1
+```
+
 ## Design
 
 - **Two assertion tiers.** `contains` / `not_contains` / `regex` are
@@ -66,9 +73,12 @@ java -jar target/agent-evals-0.1.0-SNAPSHOT.jar datasets/customer-support.yaml -
   waiting on the target or judge finishes in about the time of its slowest case.
   Results are still reported in dataset order, so the report and exit code are
   deterministic.
-- **Judge ensembling.** Each `judge` assertion polls the model three times and
-  takes the **median** score, damping the variance of any single stochastic
-  grade before it can flip a CI gate.
+- **Judge ensembling.** Each `judge` assertion polls the model `--judge-ensemble`
+  times (**default 3**) and takes the **median** score, damping the variance of
+  any single stochastic grade before it can flip a CI gate. The polls run
+  concurrently, so ensembling costs latency of *one* call, not three — but it
+  does cost 3× the **tokens**. Set `--judge-ensemble 1` to disable it (single
+  call, a third of the judge spend) where cost matters more than stability.
 - **Reports are artifacts.** Every run writes `eval-report.md` with per-case
   results, timings, and judge rationales — uploaded by CI on pass *and* fail,
   because the failing report is the useful one.
@@ -79,7 +89,7 @@ java -jar target/agent-evals-0.1.0-SNAPSHOT.jar datasets/customer-support.yaml -
 - [x] Pass-rate threshold flag (`--min-pass-rate 0.9`) for flaky-tolerant gates
 - [x] Parallel case execution (virtual threads)
 - [x] Trajectory assertions (did the agent call the *right tools*, not just answer well)
-- [x] Judge ensembling to reduce single-judge variance
+- [x] Judge ensembling to reduce single-judge variance (concurrent, `--judge-ensemble N`)
 
 ## License
 
