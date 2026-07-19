@@ -79,7 +79,7 @@ public class LlmJudge {
     }
 
     /** Tolerates judges that wrap JSON in prose or code fences. */
-    static String extractJson(String text) {
+    public static String extractJson(String text) {
         int start = text.indexOf('{');
         int end = text.lastIndexOf('}');
         if (start < 0 || end <= start) {

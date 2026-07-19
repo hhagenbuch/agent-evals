@@ -5,3 +5,4 @@
 .DS_Store
 *.log
 eval-report.md
+dependency-reduced-pom.xml
