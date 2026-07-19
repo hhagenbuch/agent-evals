@@ -26,7 +26,7 @@ import java.util.concurrent.Future;
  *
  * <pre>
  * java -jar agent-evals.jar datasets/customer-support.yaml \
- *     [--target URL] [--report eval-report.md] [--min-pass-rate 0.9]
+ *     [--target URL] [--report eval-report.md] [--min-pass-rate 0.9] [--judge-ensemble 3]
  * </pre>
  *
  * Exit code 0 when the pass rate meets {@code --min-pass-rate} (default 1.0 —
@@ -36,19 +36,21 @@ public final class EvalRunner {
 
     public static void main(String[] args) {
         if (args.length < 1) {
-            System.err.println(
-                    "usage: eval-runner <dataset.yaml> [--target URL] [--report FILE] [--min-pass-rate 0.9]");
+            System.err.println("usage: eval-runner <dataset.yaml> [--target URL] [--report FILE] "
+                    + "[--min-pass-rate 0.9] [--judge-ensemble 3]");
             System.exit(2);
         }
         Dataset dataset = DatasetLoader.load(Path.of(args[0]));
         String targetUrl = argValue(args, "--target", dataset.target());
         Path reportPath = Path.of(argValue(args, "--report", "eval-report.md"));
         double minPassRate = Double.parseDouble(argValue(args, "--min-pass-rate", "1.0"));
+        int judgeEnsemble = Integer.parseInt(
+                argValue(args, "--judge-ensemble", String.valueOf(LlmJudge.DEFAULT_ENSEMBLE)));
 
         TargetSystem target = targetUrl == null || targetUrl.equals("echo")
                 ? new EchoTarget()
                 : new HttpTarget(targetUrl);
-        LlmJudge judge = new LlmJudge(System.getenv("ANTHROPIC_API_KEY"));
+        LlmJudge judge = new LlmJudge(System.getenv("ANTHROPIC_API_KEY"), judgeEnsemble);
 
         List<CaseResult> results = run(dataset, target, judge);
 
@@ -95,20 +97,32 @@ public final class EvalRunner {
 
     static CaseResult evaluateCase(EvalCase evalCase, TargetSystem target, LlmJudge judge) {
         long start = System.currentTimeMillis();
-        String response;
-        List<AssertionResult> assertionResults = new ArrayList<>();
+
+        // Get the target's response first, isolated from the assertion loop: a
+        // failure HERE means the target itself broke ("target responded").
+        TargetResponse targetResponse;
         try {
-            TargetResponse targetResponse = target.respond(evalCase.prompt());
-            response = targetResponse.reply();
-            for (var spec : evalCase.assertions()) {
-                assertionResults.add(Assertions.evaluate(spec, evalCase.prompt(), targetResponse, judge));
-            }
+            targetResponse = target.respond(evalCase.prompt());
         } catch (RuntimeException e) {
-            response = "";
-            assertionResults.add(AssertionResult.fail("target responded", e.toString()));
+            return new CaseResult(evalCase.id(), "",
+                    List.of(AssertionResult.fail("target responded", e.toString())),
+                    System.currentTimeMillis() - start);
+        }
+
+        // Now the assertions. A failure HERE (e.g. the judge's network call) is
+        // an assertion error, not a target error — attribute each one correctly
+        // and don't let one broken assertion sink the others.
+        List<AssertionResult> assertionResults = new ArrayList<>();
+        for (var spec : evalCase.assertions()) {
+            try {
+                assertionResults.add(Assertions.evaluate(spec, evalCase.prompt(), targetResponse, judge));
+            } catch (RuntimeException e) {
+                assertionResults.add(AssertionResult.fail(
+                        "assertion '" + spec.type() + "' evaluated", e.toString()));
+            }
         }
         long millis = System.currentTimeMillis() - start;
-        return new CaseResult(evalCase.id(), response, assertionResults, millis);
+        return new CaseResult(evalCase.id(), targetResponse.reply(), assertionResults, millis);
     }
 
     private static String argValue(String[] args, String flag, String fallback) {

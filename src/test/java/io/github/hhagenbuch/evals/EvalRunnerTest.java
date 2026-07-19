@@ -6,6 +6,7 @@ import io.github.hhagenbuch.evals.model.CaseResult;
 import io.github.hhagenbuch.evals.model.Dataset;
 import io.github.hhagenbuch.evals.model.EvalCase;
 import io.github.hhagenbuch.evals.target.EchoTarget;
+import io.github.hhagenbuch.evals.target.TargetSystem;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -34,5 +35,21 @@ class EvalRunnerTest {
         assertThat(EvalRunner.meetsThreshold(10, 10, 1.0)).isTrue();  // default: all must pass
         assertThat(EvalRunner.meetsThreshold(9, 10, 1.0)).isFalse();
         assertThat(EvalRunner.meetsThreshold(0, 0, 1.0)).isTrue();    // empty dataset
+    }
+
+    @Test
+    void targetFailureIsAttributedToTargetNotAssertions() {
+        TargetSystem broken = prompt -> {
+            throw new IllegalStateException("connection refused");
+        };
+        EvalCase evalCase = new EvalCase("c1", "ping",
+                List.of(new AssertionSpec("contains", "pong", null, null)));
+
+        CaseResult result = EvalRunner.evaluateCase(evalCase, broken, new LlmJudge(null));
+
+        assertThat(result.passed()).isFalse();
+        // exactly one failure, describing the TARGET — the contains assertion never ran
+        assertThat(result.assertions()).hasSize(1);
+        assertThat(result.assertions().get(0).description()).isEqualTo("target responded");
     }
 }

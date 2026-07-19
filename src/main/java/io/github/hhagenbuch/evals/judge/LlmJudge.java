@@ -14,6 +14,10 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /**
  * Scores a response 1–5 against free-text criteria using an LLM.
@@ -33,9 +37,20 @@ public class LlmJudge {
     private final HttpClient client = HttpClient.newHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
     private final String apiKey;
+    private final int ensembleSize;
 
     public LlmJudge(String apiKey) {
+        this(apiKey, DEFAULT_ENSEMBLE);
+    }
+
+    /**
+     * @param ensembleSize how many times each judge assertion polls the model
+     *                     (combined by median). {@code 1} disables ensembling —
+     *                     one call per assertion, a third of the token cost.
+     */
+    public LlmJudge(String apiKey, int ensembleSize) {
         this.apiKey = apiKey;
+        this.ensembleSize = Math.max(1, ensembleSize);
     }
 
     public boolean available() {
@@ -43,21 +58,42 @@ public class LlmJudge {
     }
 
     /**
-     * Polls the judge {@link #DEFAULT_ENSEMBLE} times and returns the median
-     * score, reducing the variance of any single stochastic grade.
+     * Polls the judge {@code ensembleSize} times and returns the median score,
+     * reducing the variance of any single stochastic grade.
      */
     public Verdict judgeEnsemble(String prompt, String response, String criteria) {
-        return judgeEnsemble(prompt, response, criteria, DEFAULT_ENSEMBLE);
+        return judgeEnsemble(prompt, response, criteria, ensembleSize);
     }
 
+    /**
+     * Runs {@code k} judge calls concurrently (each case already runs on its own
+     * virtual thread, so k more is cheap) and combines their scores by median.
+     * {@code k == 1} short-circuits to a single call — no threads, no median.
+     */
     public Verdict judgeEnsemble(String prompt, String response, String criteria, int k) {
-        List<Integer> scores = new ArrayList<>();
-        List<Verdict> verdicts = new ArrayList<>();
-        for (int i = 0; i < k; i++) {
-            Verdict v = judge(prompt, response, criteria);
-            verdicts.add(v);
-            scores.add(v.score());
+        if (k <= 1) {
+            return judge(prompt, response, criteria);
         }
+        List<Verdict> verdicts = new ArrayList<>();
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            List<Future<Verdict>> futures = new ArrayList<>();
+            for (int i = 0; i < k; i++) {
+                futures.add(executor.submit(() -> judge(prompt, response, criteria)));
+            }
+            for (Future<Verdict> future : futures) {
+                verdicts.add(future.get());
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("interrupted while judging", e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException re) {
+                throw re;
+            }
+            throw new IllegalStateException("judge call failed", cause);
+        }
+        List<Integer> scores = verdicts.stream().map(Verdict::score).toList();
         int median = median(scores);
         String rationale = verdicts.stream()
                 .filter(v -> v.score() == median)
