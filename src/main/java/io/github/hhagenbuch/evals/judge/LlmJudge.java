@@ -79,23 +79,31 @@ public class LlmJudge {
             return judge(prompt, response, criteria);
         }
         List<Verdict> verdicts = new ArrayList<>();
+        Throwable lastFailure = null;
         try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
             List<Future<Verdict>> futures = new ArrayList<>();
             for (int i = 0; i < k; i++) {
                 futures.add(executor.submit(() -> judge(prompt, response, criteria)));
             }
+            // Tolerate individual poll failures: one flaky judge call (e.g. a stray
+            // empty completion) must not sink the whole ensemble. Take the median
+            // over the polls that succeeded; only surface an error if they all fail.
             for (Future<Verdict> future : futures) {
-                verdicts.add(future.get());
+                try {
+                    verdicts.add(future.get());
+                } catch (ExecutionException e) {
+                    lastFailure = e.getCause() != null ? e.getCause() : e;
+                }
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("interrupted while judging", e);
-        } catch (ExecutionException e) {
-            Throwable cause = e.getCause();
-            if (cause instanceof RuntimeException re) {
+        }
+        if (verdicts.isEmpty()) {
+            if (lastFailure instanceof RuntimeException re) {
                 throw re;
             }
-            throw new IllegalStateException("judge call failed", cause);
+            throw new IllegalStateException("all " + k + " judge polls failed", lastFailure);
         }
         List<Integer> scores = verdicts.stream().map(Verdict::score).toList();
         int median = median(scores);
@@ -145,11 +153,27 @@ public class LlmJudge {
                     .header("content-type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
                     .build();
-            HttpResponse<String> response2 = sendWithRetry(request);
-            String text = mapper.readTree(response2.body())
-                    .path("content").path(0).path("text").asText();
-            JsonNode verdict = mapper.readTree(extractJson(text));
-            return new Verdict(verdict.path("score").asInt(), verdict.path("rationale").asText());
+            // The model occasionally returns a 200 with an empty or non-JSON
+            // completion; that is transient, so retry it like a rate-limit blip
+            // rather than failing the case on the first stray response.
+            String lastText = "";
+            for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+                HttpResponse<String> httpResponse = sendWithRetry(request);
+                lastText = mapper.readTree(httpResponse.body())
+                        .path("content").path(0).path("text").asText();
+                try {
+                    JsonNode verdict = mapper.readTree(extractJson(lastText));
+                    return new Verdict(verdict.path("score").asInt(), verdict.path("rationale").asText());
+                } catch (IllegalArgumentException | com.fasterxml.jackson.core.JsonProcessingException parseFailure) {
+                    if (attempt == MAX_ATTEMPTS) {
+                        throw new IllegalStateException(
+                                "judge returned no parseable JSON after " + MAX_ATTEMPTS
+                                        + " attempts; last output: '" + snippet(lastText) + "'", parseFailure);
+                    }
+                    Thread.sleep(BACKOFF_BASE_MILLIS * (1L << (attempt - 1)));
+                }
+            }
+            throw new IllegalStateException("unreachable: judge retry loop exited without a verdict");
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         } catch (InterruptedException e) {
