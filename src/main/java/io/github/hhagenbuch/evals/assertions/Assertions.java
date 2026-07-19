@@ -66,7 +66,7 @@ public final class Assertions {
         if (judge == null || !judge.available()) {
             return AssertionResult.skip(description, "no ANTHROPIC_API_KEY — judge skipped");
         }
-        LlmJudge.Verdict verdict = judge.judge(prompt, response, spec.criteria());
+        LlmJudge.Verdict verdict = judge.judgeEnsemble(prompt, response, spec.criteria());
         return verdict.score() >= minScore
                 ? AssertionResult.pass(description + " (scored " + verdict.score() + ")")
                 : AssertionResult.fail(description,

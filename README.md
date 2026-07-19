@@ -61,6 +61,14 @@ java -jar target/agent-evals-0.1.0-SNAPSHOT.jar datasets/customer-support.yaml -
   [spring-ai-agent-starter](https://github.com/hhagenbuch/spring-ai-agent-starter);
   `EchoTarget` lets the harness test itself. Implement `TargetSystem` (one
   method) for anything else.
+- **Cases run in parallel.** Each case is dispatched on its own virtual thread
+  (`Executors.newVirtualThreadPerTaskExecutor()`), so a suite that is mostly
+  waiting on the target or judge finishes in about the time of its slowest case.
+  Results are still reported in dataset order, so the report and exit code are
+  deterministic.
+- **Judge ensembling.** Each `judge` assertion polls the model three times and
+  takes the **median** score, damping the variance of any single stochastic
+  grade before it can flip a CI gate.
 - **Reports are artifacts.** Every run writes `eval-report.md` with per-case
   results, timings, and judge rationales — uploaded by CI on pass *and* fail,
   because the failing report is the useful one.
@@ -69,9 +77,9 @@ java -jar target/agent-evals-0.1.0-SNAPSHOT.jar datasets/customer-support.yaml -
 
 - [x] YAML datasets, deterministic + judge assertions, markdown reports, CI gate
 - [x] Pass-rate threshold flag (`--min-pass-rate 0.9`) for flaky-tolerant gates
-- [ ] Parallel case execution
+- [x] Parallel case execution (virtual threads)
 - [x] Trajectory assertions (did the agent call the *right tools*, not just answer well)
-- [ ] Judge ensembling to reduce single-judge variance
+- [x] Judge ensembling to reduce single-judge variance
 
 ## License
 

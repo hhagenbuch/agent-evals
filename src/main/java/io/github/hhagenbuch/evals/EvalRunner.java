@@ -16,6 +16,10 @@ import io.github.hhagenbuch.evals.target.TargetSystem;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /**
  * CLI entry point.
@@ -63,28 +67,48 @@ public final class EvalRunner {
         return rate + 1e-9 >= minPassRate;
     }
 
+    /**
+     * Runs every case concurrently on virtual threads, then reports results in
+     * dataset order (so the report and exit code stay deterministic regardless
+     * of which case finishes first).
+     */
     static List<CaseResult> run(Dataset dataset, TargetSystem target, LlmJudge judge) {
         List<CaseResult> results = new ArrayList<>();
-        for (EvalCase evalCase : dataset.cases()) {
-            long start = System.currentTimeMillis();
-            String response;
-            List<AssertionResult> assertionResults = new ArrayList<>();
-            try {
-                TargetResponse targetResponse = target.respond(evalCase.prompt());
-                response = targetResponse.reply();
-                for (var spec : evalCase.assertions()) {
-                    assertionResults.add(Assertions.evaluate(spec, evalCase.prompt(), targetResponse, judge));
-                }
-            } catch (RuntimeException e) {
-                response = "";
-                assertionResults.add(AssertionResult.fail("target responded", e.toString()));
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            List<Future<CaseResult>> futures = dataset.cases().stream()
+                    .map(evalCase -> executor.submit(() -> evaluateCase(evalCase, target, judge)))
+                    .toList();
+            for (Future<CaseResult> future : futures) {
+                CaseResult result = future.get();
+                System.out.printf("[%s] %s (%d ms)%n",
+                        result.passed() ? "PASS" : "FAIL", result.caseId(), result.millis());
+                results.add(result);
             }
-            long millis = System.currentTimeMillis() - start;
-            CaseResult result = new CaseResult(evalCase.id(), response, assertionResults, millis);
-            System.out.printf("[%s] %s (%d ms)%n", result.passed() ? "PASS" : "FAIL", evalCase.id(), millis);
-            results.add(result);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("interrupted while running evals", e);
+        } catch (ExecutionException e) {
+            throw new IllegalStateException("eval case failed unexpectedly", e.getCause());
         }
         return results;
+    }
+
+    static CaseResult evaluateCase(EvalCase evalCase, TargetSystem target, LlmJudge judge) {
+        long start = System.currentTimeMillis();
+        String response;
+        List<AssertionResult> assertionResults = new ArrayList<>();
+        try {
+            TargetResponse targetResponse = target.respond(evalCase.prompt());
+            response = targetResponse.reply();
+            for (var spec : evalCase.assertions()) {
+                assertionResults.add(Assertions.evaluate(spec, evalCase.prompt(), targetResponse, judge));
+            }
+        } catch (RuntimeException e) {
+            response = "";
+            assertionResults.add(AssertionResult.fail("target responded", e.toString()));
+        }
+        long millis = System.currentTimeMillis() - start;
+        return new CaseResult(evalCase.id(), response, assertionResults, millis);
     }
 
     private static String argValue(String[] args, String flag, String fallback) {

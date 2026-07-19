@@ -12,6 +12,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Scores a response 1–5 against free-text criteria using an LLM.
@@ -25,6 +27,9 @@ public class LlmJudge {
 
     private static final String MODEL = "claude-sonnet-5";
 
+    /** Default ensemble size: the judge is polled this many times and the scores are combined by median. */
+    public static final int DEFAULT_ENSEMBLE = 3;
+
     private final HttpClient client = HttpClient.newHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
     private final String apiKey;
@@ -35,6 +40,41 @@ public class LlmJudge {
 
     public boolean available() {
         return apiKey != null && !apiKey.isBlank();
+    }
+
+    /**
+     * Polls the judge {@link #DEFAULT_ENSEMBLE} times and returns the median
+     * score, reducing the variance of any single stochastic grade.
+     */
+    public Verdict judgeEnsemble(String prompt, String response, String criteria) {
+        return judgeEnsemble(prompt, response, criteria, DEFAULT_ENSEMBLE);
+    }
+
+    public Verdict judgeEnsemble(String prompt, String response, String criteria, int k) {
+        List<Integer> scores = new ArrayList<>();
+        List<Verdict> verdicts = new ArrayList<>();
+        for (int i = 0; i < k; i++) {
+            Verdict v = judge(prompt, response, criteria);
+            verdicts.add(v);
+            scores.add(v.score());
+        }
+        int median = median(scores);
+        String rationale = verdicts.stream()
+                .filter(v -> v.score() == median)
+                .findFirst()
+                .orElse(verdicts.get(0))
+                .rationale();
+        return new Verdict(median, "median of " + scores + ": " + rationale);
+    }
+
+    /** Median of the scores; even counts average the two middle values (rounded). */
+    public static int median(List<Integer> scores) {
+        List<Integer> sorted = scores.stream().sorted().toList();
+        int n = sorted.size();
+        int mid = n / 2;
+        return n % 2 == 1
+                ? sorted.get(mid)
+                : (int) Math.round((sorted.get(mid - 1) + sorted.get(mid)) / 2.0);
     }
 
     public Verdict judge(String prompt, String response, String criteria) {

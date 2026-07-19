@@ -3,6 +3,8 @@ package io.github.hhagenbuch.evals;
 import io.github.hhagenbuch.evals.judge.LlmJudge;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -18,6 +20,14 @@ class LlmJudgeTest {
     void rejectsOutputWithoutJson() {
         assertThatThrownBy(() -> LlmJudge.extractJson("no json here"))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void medianCombinesEnsembleScores() {
+        assertThat(LlmJudge.median(List.of(4, 5, 4))).isEqualTo(4);   // odd: middle value
+        assertThat(LlmJudge.median(List.of(2, 5, 3))).isEqualTo(3);   // odd, unsorted
+        assertThat(LlmJudge.median(List.of(4, 5))).isEqualTo(5);      // even: rounded average (4.5 -> 5)
+        assertThat(LlmJudge.median(List.of(3))).isEqualTo(3);         // single judge
     }
 
     @Test
