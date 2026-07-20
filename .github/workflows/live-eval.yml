@@ -78,12 +78,16 @@ jobs:
         working-directory: agent-evals
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Dispatch inputs go through env, never interpolated straight into the script —
+          # a `${{ }}` in a run: block is substituted as text before the shell sees it, so a
+          # crafted input could inject commands.
+          MIN_PASS_RATE: ${{ inputs.min_pass_rate }}
         run: |
           jar=$(ls target/agent-evals-*.jar | grep -v original- | head -1)
           echo "running $jar"
           # customer-support.yaml already targets http://localhost:8080/api/chat and
           # carries judge assertions — with the key present the judge tier runs for real.
-          java -jar "$jar" datasets/customer-support.yaml --min-pass-rate "${{ inputs.min_pass_rate }}"
+          java -jar "$jar" datasets/customer-support.yaml --min-pass-rate "$MIN_PASS_RATE"
 
       - name: Upload eval report
         if: always()
