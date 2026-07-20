@@ -1,7 +1,7 @@
 # agent-evals
 
 [![Eval gate](https://github.com/hhagenbuch/agent-evals/actions/workflows/eval-gate.yml/badge.svg)](https://github.com/hhagenbuch/agent-evals/actions)
-![Java 21](https://img.shields.io/badge/Java-21-blue)
+![Java 25](https://img.shields.io/badge/Java-25-blue)
 ![Zero runtime deps](https://img.shields.io/badge/runtime%20deps-Jackson%20only-green)
 
 **JUnit for LLM agents.** Golden datasets in YAML, deterministic assertions,
@@ -11,6 +11,22 @@ Agents regress silently: a prompt tweak fixes one behavior and breaks three
 others. The fix is the same as it's always been in software — a regression
 suite that runs on every change. This is that suite, in plain Java with no
 framework to adopt.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    DS[(datasets/*.yaml<br/>golden cases)] --> RN[EvalRunner<br/>virtual-thread per case]
+    RN --> TG[TargetSystem]
+    TG --> HT[HttpTarget → /api/chat<br/>starter]
+    TG --> ET[EchoTarget<br/>self-test]
+    RN --> AS[Assertions<br/>contains · regex · tool_called]
+    RN --> JG[LlmJudge<br/>ensemble median · --judge-model]
+    AS --> RP[Reporter<br/>eval-report.md]
+    JG --> RP
+    RP --> XC{exit 0 / 1}
+    XC --> CI[CI gate · operator eval Job]
+```
 
 ## How it works
 
