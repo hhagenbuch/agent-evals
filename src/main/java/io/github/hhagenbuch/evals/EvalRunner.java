@@ -8,6 +8,7 @@ import io.github.hhagenbuch.evals.model.CaseResult;
 import io.github.hhagenbuch.evals.model.Dataset;
 import io.github.hhagenbuch.evals.model.EvalCase;
 import io.github.hhagenbuch.evals.report.Reporter;
+import io.github.hhagenbuch.evals.report.Verdict;
 import io.github.hhagenbuch.evals.target.EchoTarget;
 import io.github.hhagenbuch.evals.target.HttpTarget;
 import io.github.hhagenbuch.evals.target.TargetResponse;
@@ -15,7 +16,9 @@ import io.github.hhagenbuch.evals.target.TargetSystem;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -27,12 +30,16 @@ import java.util.concurrent.Semaphore;
  *
  * <pre>
  * java -jar agent-evals.jar datasets/customer-support.yaml \
- *     [--target URL] [--report eval-report.md] [--min-pass-rate 0.9] \
+ *     [--target URL] [--report eval-report.md] [--verdict verdict.json] \
+ *     [--min-pass-rate 0.9] [--require id1,id2] \
  *     [--judge-ensemble 3] [--concurrency N]
  * </pre>
  *
  * Exit code 0 when the pass rate meets {@code --min-pass-rate} (default 1.0 —
- * every case must pass), 1 otherwise — wire it straight into CI.
+ * every case must pass) AND no required case failed; 1 otherwise. A case is
+ * required via {@code required: true} in the dataset or {@code --require}.
+ * The gate decision is also emitted machine-readably: {@code verdict.json}
+ * next to the report, and a final {@code VERDICT-JSON: ...} stdout line.
  */
 public final class EvalRunner {
 
@@ -45,6 +52,8 @@ public final class EvalRunner {
         Dataset dataset = DatasetLoader.load(Path.of(args[0]));
         String targetUrl = argValue(args, "--target", dataset.target());
         Path reportPath = Path.of(argValue(args, "--report", "eval-report.md"));
+        Path verdictPath = Path.of(argValue(args, "--verdict", "verdict.json"));
+        Set<String> forcedRequired = parseRequire(argValue(args, "--require", ""));
         double minPassRate = Double.parseDouble(argValue(args, "--min-pass-rate", "1.0"));
         int judgeEnsemble = Integer.parseInt(
                 argValue(args, "--judge-ensemble", String.valueOf(LlmJudge.DEFAULT_ENSEMBLE)));
@@ -60,11 +69,28 @@ public final class EvalRunner {
 
         String md = Reporter.markdown(dataset, results);
         Reporter.write(reportPath, md);
-        long passed = results.stream().filter(CaseResult::passed).count();
-        boolean gatePassed = meetsThreshold(passed, results.size(), minPassRate);
+        Verdict verdict = Verdict.of(dataset, results, minPassRate, forcedRequired);
+        Reporter.write(verdictPath, verdict.toJson());
         System.out.printf("%n%s: %d/%d cases passed (min-pass-rate %.2f) — report: %s%n",
-                dataset.name(), passed, results.size(), minPassRate, reportPath);
-        System.exit(gatePassed ? 0 : 1);
+                dataset.name(), verdict.passed(), verdict.total(), minPassRate, reportPath);
+        if (!verdict.requiredFailed().isEmpty()) {
+            System.out.println("REQUIRED case(s) failed — gate fails regardless of the aggregate: "
+                    + String.join(", ", verdict.requiredFailed()));
+        }
+        // The machine-readable channel for log-only consumers (e.g. a k8s Job log).
+        System.out.println(Verdict.STDOUT_TAG + verdict.toJson());
+        System.exit(verdict.gatePassed() ? 0 : 1);
+    }
+
+    /** Comma-separated ids from {@code --require}, trimmed, empties dropped. */
+    static Set<String> parseRequire(String raw) {
+        Set<String> ids = new LinkedHashSet<>();
+        for (String id : raw.split(",")) {
+            if (!id.isBlank()) {
+                ids.add(id.strip());
+            }
+        }
+        return ids;
     }
 
     /** CI gate: does the observed pass rate meet the threshold? Empty datasets pass. */

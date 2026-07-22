@@ -60,6 +60,18 @@ By default every case must pass. For flaky-tolerant gates, lower the bar with
 java -jar target/agent-evals-0.1.0-SNAPSHOT.jar datasets/customer-support.yaml --min-pass-rate 0.9
 ```
 
+Some cases must never be traded against the average. Mark them
+`required: true` in the dataset (or force at runtime with `--require id1,id2`)
+and the gate fails if they fail, **regardless of the aggregate** — the home of
+regression cases exported from production incidents. A `--require` id absent
+from the dataset also fails the gate (fail-closed, not a free pass).
+
+Every run also emits the gate decision machine-readably: a `verdict.json`
+(`--verdict FILE`) next to the markdown report, and the same document as a
+final `VERDICT-JSON: {...}` stdout line — so a consumer that only sees a
+container log (say, a Kubernetes Job's) still gets per-case pass/fail,
+required flags, rates, and `gatePassed` without any shared volume.
+
 Judge assertions ensemble the model 3× by default (median score). Cut that to a
 single call — a third of the judge tokens — with `--judge-ensemble 1`:
 
