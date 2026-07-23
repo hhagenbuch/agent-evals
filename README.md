@@ -53,6 +53,17 @@ java -jar target/agent-evals-0.1.0-SNAPSHOT.jar datasets/customer-support.yaml
 # exit code 0 → CI proceeds; any failure → exit 1 → CI blocks the merge
 ```
 
+`datasets/fathom.yaml` scores a [fathom](https://github.com/hhagenbuch/fathom)-backed
+agent (the starter with fathom mounted). Its headline case, `verify-honesty-stale-index`,
+is pinned `required`: an agent that admits a stale index scores high, one that
+answers confidently from stale data scores low — so honesty is gated, not just
+correctness.
+
+```bash
+java -jar target/agent-evals-0.1.0-SNAPSHOT.jar datasets/fathom.yaml \
+  --target http://localhost:8080/api/chat --require verify-honesty-stale-index
+```
+
 By default every case must pass. For flaky-tolerant gates, lower the bar with
 `--min-pass-rate` (exit 0 iff `passed/total ≥ threshold`):
 

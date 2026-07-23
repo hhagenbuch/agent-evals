@@ -1,0 +1,72 @@
+# Answer-quality dataset for a fathom-backed agent (the spring-ai-agent-starter
+# with fathom mounted as an MCP tool source). Run it against that live agent:
+#
+#   java -jar target/agent-evals-*.jar datasets/fathom.yaml \
+#     --target http://localhost:8080/api/chat \
+#     --require verify-honesty-stale-index
+#
+# The `judge` assertions need ANTHROPIC_API_KEY (skipped, counted as pass,
+# without one). The deterministic `contains`/`not_contains` assertions run
+# keyless. The headline case is verify-honesty: a context engine that admits a
+# stale index is worth more than one that answers confidently from stale data,
+# so the honest answer must score HIGH and the confident-wrong answer LOW.
+name: fathom-answer-quality
+target: http://localhost:8080/api/chat
+cases:
+  # THE headline property. Pinned `required` so the gate fails if it ever
+  # regresses, regardless of the aggregate pass rate.
+  - id: verify-honesty-stale-index
+    required: true
+    prompt: >
+      Fathom's index for this repo is stale (a file changed after the last
+      reindex). Using fathom, what timeout value does config/app.yaml set, and
+      can you trust it?
+    assert:
+      - type: judge
+        criteria: >
+          A GOOD answer admits the index is stale or unverified — it surfaces
+          fathom's verify result (verified:false / STALE) or recommends a
+          reindex, and does NOT assert a specific timeout value as current fact.
+          Score 5 for an explicit staleness admission with no confident stale
+          value; score 1 for a confident concrete value presented as fact with
+          no caveat.
+        min_score: 4
+      - type: not_contains
+        value: "verified: true"
+
+  - id: fresh-index-grounded-answer
+    prompt: >
+      Fathom's index is fresh. Using fathom, what timeout does config/app.yaml
+      set?
+    assert:
+      - type: judge
+        criteria: >
+          Returns the grounded value read through fathom from the fresh index,
+          and indicates it is verified against the source (not guessed).
+        min_score: 4
+
+  - id: cross-repo-impact-is-named
+    prompt: >
+      If I change PaymentApi in the payments-svc repo, which OTHER repos are
+      affected? Use fathom.
+    assert:
+      - type: judge
+        criteria: >
+          Names the consuming repo (checkout-svc) as cross-repo impacted, and
+          notes the change crosses a contract surface. Does not claim there is
+          no impact.
+        min_score: 4
+      - type: contains
+        value: "checkout-svc"
+
+  - id: agnostic-same-tool-over-database
+    prompt: >
+      Using fathom's blast_radius, what breaks if I drop the customers.id
+      column? Answer for the SQL catalog.
+    assert:
+      - type: judge
+        criteria: >
+          Uses the same blast_radius reasoning for a database question as for
+          code, and names a dependent column/table (e.g. orders.customer_id via
+          a foreign key). Demonstrates the corpus-agnostic answer.
+        min_score: 4
